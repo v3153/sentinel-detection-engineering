@@ -31,9 +31,7 @@ let mapping = datatable(CommandFound: string, match_list: dynamic) [
     "schtasks",  dynamic(['2NodGFza3', 'NjaHRhc2tz', 'zY2h0YXNrc']),
     "Invoke- ",  dynamic(['SW52b2tlL', 'ludm9rZS', 'JbnZva2Ut']),
 ];
-
 let riskyCommandRegex = @"(d2hvYW1p|dob2Fta|3aG9hbW|bmV0IHNoYXJl|5ldCBzaGFyZ|uZXQgc2hhcm|bmV0IHVzZ|5ldCB1c2|uZXQgdXNl|bmV0IHZpZX|5ldCB2aWV3|uZXQgdmlld|aXBjb25maWc|lwY29uZmln|pcGNvbmZpZ|bmV0c2gg|5ldHNoI|uZXRzaC|2NodGFza3|NjaHRhc2tz|zY2h0YXNrc|SW52b2tlL|ludm9rZS|JbnZva2Ut)";
-
 CommonSecurityLog
 | where TimeGenerated > ago(3d)
 | where RequestURL matches regex riskyCommandRegex
