@@ -33,7 +33,6 @@ All rules must include:
 - [ ] Tested against synthetic/lab data
 - [ ] Validated against known-good activity (false positive check)
 - [ ] Performance reviewed (query runtime < 30s on 7-day window)
-- [ ] Peer reviewed via GitHub PR
 
 ### 5. Tuning in Production
 - Monitor alert volume weekly for first 30 days
