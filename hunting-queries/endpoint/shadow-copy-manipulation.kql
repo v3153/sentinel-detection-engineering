@@ -29,7 +29,6 @@ let MalProcess = dynamic([
     "cmd.exe /c bcdedit /set",
     "recoveryenabled"
 ]);
-
 SecurityEvent
 | where TimeGenerated > ago(1d)
 | where ProcessName has_any (MalProcess)
