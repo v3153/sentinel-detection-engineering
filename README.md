@@ -5,7 +5,7 @@
 [![Sentinel](https://img.shields.io/badge/Microsoft%20Sentinel-Compatible-0078D4?logo=microsoft-azure)](https://azure.microsoft.com/en-us/products/microsoft-sentinel)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Detections](https://img.shields.io/badge/Detection%20Rules-7-blue)](detections/)
-[![Hunting](https://img.shields.io/badge/Hunting%20Queries-9-brightgreen)](hunting-queries/)
+[![Hunting](https://img.shields.io/badge/Hunting%20Queries-5-brightgreen)](hunting-queries/)
 
 ---
 
@@ -19,13 +19,8 @@ This repo contains **production KQL detection rules and threat hunting queries**
 - Known false positive guidance
 - Tuning recommendations (exposed as `let` variables)
 
-**My background:**
-- Security Engineer @ Toyota Tsusho Systems India
-- Microsoft Certified: Security Operations Analyst (SC-200)
-- CVE-2024-9495 discoverer
-- Certified Blue Team Professional (CBTP)
 
-📖 Detection engineering write-ups: [Medium](https://medium.com)
+📖 Detection engineering write-ups: [Medium](https://medium.com/@patelvidhi4288)
 
 ---
 
@@ -82,25 +77,18 @@ sentinel-detection-engineering/
 
 ## 🏹 Hunting Queries
 
-### Identity
-| Query | MITRE | Description |
-|-------|-------|-------------|
-| [Dormant Account Activation](hunting-queries/identity/dormant-account-activation.kql) | T1078 | Re-activated stale accounts — account takeover indicator |
-| [Privileged Account Enumeration](hunting-queries/identity/privileged-account-enumeration.kql) | T1069.002, T1087.002 | LDAP/AD recon targeting privileged groups |
 
 ### Endpoint
 | Query | MITRE | Description |
 |-------|-------|-------------|
 | [SMB Share High-Frequency Access](hunting-queries/endpoint/smb-share-high-frequency.kql) | T1021.002 | Abnormal SMB share access — ransomware or data staging |
 | [Shadow Copy & Recovery Manipulation](hunting-queries/endpoint/shadow-copy-manipulation.kql) | T1490 | VSS deletion and boot recovery tampering — ransomware precursor |
-| [Reconnaissance Activity Burst](hunting-queries/endpoint/recon-activity-burst.kql) | T1082, T1482 | Burst of recon tools across multiple categories in 15-min window |
 
 ### Network
 | Query | MITRE | Description |
 |-------|-------|-------------|
 | [Risky Base64 Commands in URL](hunting-queries/network/risky-base64-in-url.kql) | T1071 | Base64-encoded OS commands in web requests — webshell C2 |
 | [New Destination IP](hunting-queries/network/new-destination-ip.kql) | T1071, TA0043 | Outbound connections to IPs not seen in 30-day baseline |
-| [Excessive Port Access](hunting-queries/network/excessive-port-access.kql) | T1595 | Single source hitting 100+ ports in 5 minutes — port scanning |
 | [Base64-Encoded IPv4 in URL](hunting-queries/network/base64-encoded-ipv4-in-url.kql) | T1071 | Obfuscated C2 IPs encoded in request URLs |
 
 ---
