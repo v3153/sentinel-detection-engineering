@@ -1,0 +1,47 @@
+// ============================================================
+// Hunting Query : Shadow Copy and Recovery Manipulation
+// Author        : v3153
+// MITRE ATT&CK  : T1490 - Inhibit System Recovery | Impact
+// Hunt Type     : Proactive (high-priority — ransomware precursor)
+//
+// Description :
+//   Detects attempts to delete Volume Shadow Copies or modify boot/recovery
+//   settings using built-in Windows tools. This is a well-known ransomware
+//   pre-encryption step used to prevent victims from restoring files.
+//
+//   Commands detected:
+//     - vssadmin delete shadows        (VSS deletion)
+//     - wmic shadowcopy delete         (WMI-based VSS deletion)
+//     - bcdedit /set recoveryenabled   (disabling recovery mode)
+//
+// Priority: Treat any hit as HIGH — this activity has very few
+//           legitimate use cases outside of authorized IT procedures.
+//
+// How to Use:
+//   Any alert here should be immediately escalated.
+//   Correlate Computer with recent authentication events to identify
+//   the source of access. Check for concurrent file encryption activity.
+// ============================================================
+
+let MalProcess = dynamic([
+    "cmd.exe /c vssadmin delete shadows /quiet /all",
+    "cmd.exe /c /wmic shadowcopy delete",
+    "cmd.exe /c bcdedit /set",
+    "recoveryenabled"
+]);
+
+SecurityEvent
+| where TimeGenerated > ago(1d)
+| where ProcessName has_any (MalProcess)
+    or EventData has_any (MalProcess)
+| project
+    TimeGenerated,
+    Computer,
+    Account,
+    ProcessName,
+    ProcessId,
+    CommandLine,
+    EventID,
+    EventSourceName,
+    EventData
+| sort by TimeGenerated desc

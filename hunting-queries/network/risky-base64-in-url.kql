@@ -1,0 +1,63 @@
+// ============================================================
+// Hunting Query : Risky Base64-Encoded Commands in Request URLs
+// Author        : v3153
+// MITRE ATT&CK  : T1071 - Application Layer Protocol | Command and Control
+// Hunt Type     : Retrospective
+//
+// Description :
+//   Detects Base64-encoded OS commands embedded in web request URLs.
+//   This pattern is indicative of webshell C2 communication, where
+//   attackers issue commands via HTTP parameters to avoid detection.
+//   Covers multiple Base64 permutations per command (case-sensitive encoding
+//   produces different strings depending on byte-boundary alignment).
+//
+// Commands Covered:
+//   whoami, net share, net use, net view, ipconfig, netsh,
+//   schtasks, Invoke- (PowerShell)
+//
+// How to Use:
+//   Run over 3–7 day window. Correlate SourceIP with web server access
+//   logs to identify which endpoint was targeted. Cross-reference
+//   DestinationHostName with known internal web/app servers.
+// ============================================================
+
+let mapping = datatable(CommandFound: string, match_list: dynamic) [
+    "whoami",    dynamic(['d2hvYW1p', 'dob2Fta', '3aG9hbW']),
+    "net share", dynamic(['bmV0IHNoYXJl', '5ldCBzaGFyZ', 'uZXQgc2hhcm']),
+    "net use",   dynamic(['bmV0IHVzZ', '5ldCB1c2', 'uZXQgdXNl']),
+    "net view",  dynamic(['bmV0IHZpZX', '5ldCB2aWV3', 'uZXQgdmlld']),
+    "ipconfig",  dynamic(['aXBjb25maWc', 'lwY29uZmln', 'pcGNvbmZpZ']),
+    "net sh",    dynamic(['bmV0c2gg', '5ldHNoI', 'uZXRzaC']),
+    "schtasks",  dynamic(['2NodGFza3', 'NjaHRhc2tz', 'zY2h0YXNrc']),
+    "Invoke- ",  dynamic(['SW52b2tlL', 'ludm9rZS', 'JbnZva2Ut']),
+];
+
+let riskyCommandRegex = @"(d2hvYW1p|dob2Fta|3aG9hbW|bmV0IHNoYXJl|5ldCBzaGFyZ|uZXQgc2hhcm|bmV0IHVzZ|5ldCB1c2|uZXQgdXNl|bmV0IHZpZX|5ldCB2aWV3|uZXQgdmlld|aXBjb25maWc|lwY29uZmln|pcGNvbmZpZ|bmV0c2gg|5ldHNoI|uZXRzaC|2NodGFza3|NjaHRhc2tz|zY2h0YXNrc|SW52b2tlL|ludm9rZS|JbnZva2Ut)";
+
+CommonSecurityLog
+| where TimeGenerated > ago(3d)
+| where RequestURL matches regex riskyCommandRegex
+| extend B64MatchData = extract_all(riskyCommandRegex, RequestURL)
+| where isnotempty(B64MatchData)
+| mv-expand B64MatchData to typeof(string)
+| join kind=leftouter (
+    mapping
+    | mv-expand match_list to typeof(string)
+  )
+  on $left.B64MatchData == $right.match_list
+| project
+    TimeGenerated,
+    B64MatchData,
+    CommandFound,
+    RequestURL,
+    RequestMethod,
+    DestinationHostName,
+    DestinationIP,
+    SourceIP,
+    DeviceVendor,
+    DeviceProduct,
+    Activity
+| extend
+    HostName  = tostring(split(DestinationHostName, '.', 0)[0]),
+    DnsDomain = tostring(strcat_array(array_slice(split(DestinationHostName, '.'), 1, -1), '.'))
+| sort by TimeGenerated desc

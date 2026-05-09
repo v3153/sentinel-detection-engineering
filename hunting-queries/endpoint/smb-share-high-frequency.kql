@@ -1,0 +1,43 @@
+// ============================================================
+// Hunting Query : High-Frequency SMB Network Share Access
+// Author        : v3153
+// MITRE ATT&CK  : T1021.002 - Remote Services: SMB/Windows Admin Shares | Lateral Movement
+// Hunt Type     : Proactive / Retrospective
+//
+// Description :
+//   Identifies users accessing SMB network shares at abnormally high
+//   frequency (>3 access events per minute via EventID 5140).
+//   High-frequency SMB access can indicate:
+//     - Ransomware encrypting network shares
+//     - Credential-based lateral movement
+//     - Large-scale data staging before exfiltration
+//     - Automated tools enumerating share contents
+//
+// Prerequisites:
+//   - Windows Security Auditing: Audit File Share enabled (Success)
+//   - EventID 5140 must be collected into Sentinel
+//
+// How to Use:
+//   Cross-reference Account against HR/access reviews.
+//   Correlate ShareLocalPath with crown jewel data stores.
+//   High frequency on ADMIN$ or C$ shares = high priority.
+// ============================================================
+
+SecurityEvent
+| where TimeGenerated > ago(1d)
+| where EventID == 5140
+| where AccountType == "User"
+| where isnotempty(ShareLocalPath)
+| summarize
+    AmountOfTimesActivityPerformed = count(),
+    AccessedShares = make_set(ShareName, 20)
+    by bin(TimeGenerated, 1m), Account, Activity, ShareLocalPath
+| where AmountOfTimesActivityPerformed > 3
+| project
+    TimeGenerated,
+    Account,
+    ShareLocalPath,
+    ShareName        = AccessedShares,
+    AccessCount      = AmountOfTimesActivityPerformed,
+    Activity
+| sort by AccessCount desc

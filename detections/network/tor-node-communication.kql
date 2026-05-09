@@ -1,0 +1,96 @@
+// ============================================================
+// Rule Name   : TOR Node Communication Detection
+// Author      : v3153
+// MITRE ATT&CK: T1090.003 - Proxy: Multi-hop Proxy | Command and Control
+// Severity    : High
+// Data Source : CommonSecurityLog (Firewall / Proxy logs)
+//
+// Description :
+//   Detects allowed connections to or from known TOR exit/relay nodes
+//   by matching firewall log IPs against a live TOR node feed.
+//   Supports both IPv4 and IPv6. TOR usage on corporate networks
+//   may indicate C2 communication, data exfiltration, or policy bypass.
+//
+// False Positives:
+//   - Privacy-conscious users intentionally browsing via TOR
+//   - Security researchers or threat intelligence analysts
+//   - TOR node IP list false positives (IPs recycled to legitimate owners)
+//
+// Tuning Recommendations:
+//   - Scope to allowed/non-denied traffic only (already filtered below)
+//   - Add approved researcher IPs to an exclusion list
+//   - Cross-correlate with user identity for priority triage
+//
+// External Feed : https://github.com/alireza-rezaee/tor-nodes
+//   Updated regularly; feed cached via externaldata() on each run
+// ============================================================
+
+let lookback = 1h;
+
+// Step 1: Pull live TOR node list (IPv4 + IPv6)
+let TorRaw =
+    externaldata(fingerprint: string, ipaddr: string, port: int)
+    [@"https://raw.githubusercontent.com/alireza-rezaee/tor-nodes/main/latest.all.csv"]
+    with (format="csv", ignoreFirstRecord=true);
+
+let TorIPv4 =
+    materialize(
+        TorRaw
+        | extend ip_clean = trim(@" """, ipaddr)
+        | extend TorIP4   = parse_ipv4(ip_clean)
+        | where isnotnull(TorIP4)
+        | distinct TorIP4
+    );
+
+let TorIPv6 =
+    materialize(
+        TorRaw
+        | extend ip_clean = trim(@" """, ipaddr)
+        | extend TorIP6   = parse_ipv6(ip_clean)
+        | where TorIP6 != ""
+        | distinct TorIP6
+    );
+
+// Step 2: Collect both SourceIP and DestinationIP from logs
+let LogIPs =
+    (
+        CommonSecurityLog
+        | where TimeGenerated >= ago(lookback)
+        | where isnotempty(SourceIP)
+        | project TimeGenerated, DeviceVendor, DeviceProduct,
+                  IP = SourceIP, Direction = "Source",
+                  Activity, DeviceAction, Message
+    )
+    | union
+    (
+        CommonSecurityLog
+        | where TimeGenerated >= ago(lookback)
+        | where isnotempty(DestinationIP)
+        | project TimeGenerated, DeviceVendor, DeviceProduct,
+                  IP = DestinationIP, Direction = "Destination",
+                  Activity, DeviceAction, Message
+    )
+    | extend MaliciousIP = trim(@" """, IP)
+    | extend IP4 = parse_ipv4(MaliciousIP),
+             IP6 = parse_ipv6(MaliciousIP);
+
+// Step 3: Match against TOR feed, filter allowed traffic only
+LogIPs
+| extend MatchFamily = case(
+    isnotnull(IP4) and IP4 in (TorIPv4), "IPv4",
+    IP6 != "" and IP6 in (TorIPv6),      "IPv6",
+    "NoMatch"
+  )
+| where MatchFamily != "NoMatch"
+| where DeviceAction !contains "deny"           // Allowed traffic = active TOR session
+| project
+    TimeGenerated,
+    Direction,
+    MatchFamily,
+    IP,
+    DeviceVendor,
+    DeviceProduct,
+    Activity,
+    DeviceAction,
+    Message
+| order by TimeGenerated desc

@@ -1,0 +1,91 @@
+// ============================================================
+// Hunting Query : New Destination IP Detection
+// Author        : v3153
+// MITRE ATT&CK  : T1071 - Application Layer Protocol | Command and Control
+//                 TA0043 - Reconnaissance
+// Hunt Type     : Retrospective / Scheduled
+//
+// Description :
+//   Identifies outbound connections to public IPs that have never been
+//   seen in a 30-day baseline window. Focuses on non-standard ports
+//   (excludes 80, 443, 53, etc.) to reduce noise and surface
+//   unusual C2, data staging, or beaconing activity.
+//
+//   Uses a per-source IP baseline — a source must have communicated
+//   with at least 10 known destinations to be included, avoiding
+//   alert fatigue from new/low-activity machines.
+//
+// How to Use:
+//   Review DestinationIP against threat intel (VirusTotal, Shodan).
+//   Prioritise hits with HitsInWindow between 5–10 (beaconing pattern).
+//   Correlate with DNS logs to resolve destination hostnames.
+// ============================================================
+
+let trainDays         = 30d;
+let detectWindow      = 1d;
+let minBaselineDest   = 10;
+let maxHits           = 10;
+let excludeCommonPorts = dynamic(["80","443","53","123","25","110","995","143","993","22","21","445","139"]);
+
+let trainStart  = ago(trainDays);
+let detectStart = ago(detectWindow);
+let detectEnd   = now();
+
+let base = materialize(
+    CommonSecurityLog
+    | where TimeGenerated between (trainStart .. detectEnd)
+    | where isnotempty(SourceIP) and isnotempty(DestinationIP)
+    | extend act = tostring(DeviceAction)
+    | where act !in~ ("deny","denied","blocked","block","drop","reset","reset-both","block-url","alert")
+    | where DestinationIP !contains ":"                  // IPv4 only
+    | where ipv4_is_private(DestinationIP) == false
+    | extend DstPortStr = tostring(DestinationPort)
+    | where DstPortStr !in (excludeCommonPorts)
+    | project TimeGenerated, SourceIP, DestinationIP, DstPortStr, DeviceVendor, DeviceProduct
+);
+
+let train_by_src =
+    base
+    | where TimeGenerated between (trainStart .. detectStart)
+    | summarize TrainSet = make_set(DestinationIP, 100000), KnownDstCount = dcount(DestinationIP) by SourceIP
+    | where KnownDstCount >= minBaselineDest;
+
+let detect_by_src =
+    base
+    | where TimeGenerated between (detectStart .. detectEnd)
+    | summarize DetectSet = make_set(DestinationIP, 100000) by SourceIP;
+
+train_by_src
+| join kind=inner detect_by_src on SourceIP
+| extend
+    TrainSet  = iff(isnull(TrainSet),  dynamic([]), TrainSet),
+    DetectSet = iff(isnull(DetectSet), dynamic([]), DetectSet)
+| extend NewDstIPs = set_difference(DetectSet, TrainSet)
+| mv-expand DestinationIP = NewDstIPs to typeof(string)
+| join kind=inner (base | where TimeGenerated between (detectStart .. detectEnd)) on SourceIP, DestinationIP
+| summarize
+    FirstSeen     = min(TimeGenerated),
+    LastSeen      = max(TimeGenerated),
+    Hits          = count(),
+    Ports         = make_set(DstPortStr),
+    Vendors       = make_set(DeviceVendor),
+    Products      = make_set(DeviceProduct),
+    KnownDstCount = any(KnownDstCount)
+    by SourceIP, DestinationIP
+| where Hits <= maxHits and Hits > 5
+| extend Explain = strcat(
+    "New destination",
+    "; BaselineDestPerSrc=", tostring(KnownDstCount),
+    "; HitsInWindow=", tostring(Hits),
+    "; Ports=", tostring(Ports)
+  )
+| project
+    FirstSeen,
+    LastSeen,
+    SourceIP,
+    DestinationIP,
+    Hits,
+    Ports,
+    KnownDstCount,
+    Explain
+| order by FirstSeen asc

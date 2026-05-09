@@ -1,0 +1,61 @@
+// ============================================================
+// Rule Name   : VPN Source Internal Network Scanning
+// Author      : v3153
+// MITRE ATT&CK: T1046 - Network Service Discovery | Discovery
+// Severity    : High
+// Data Source : CommonSecurityLog (Firewall / VPN logs)
+//
+// Description :
+//   Detects VPN-authenticated source IPs performing internal network
+//   scanning — connecting to an abnormally high number of internal
+//   hosts or ports within a short time window.
+//   This pattern is indicative of post-VPN lateral discovery, insider
+//   threat reconnaissance, or a compromised remote access session.
+//
+// False Positives:
+//   - Authorized vulnerability scanners (Nessus, Qualys) using VPN
+//   - IT admin tooling performing asset discovery
+//   - Backup agents or monitoring tools with broad internal reach
+//
+// Tuning Recommendations:
+//   - Add authorized scanner IPs to an exclusion list
+//   - Raise minHosts / minPorts thresholds if environment is noisy
+//   - Narrow VPN activity keywords to match your VPN vendor logs
+// ============================================================
+
+let lookback   = 1h;
+let scanWindow = 10m;
+let minHosts   = 5;
+let minPorts   = 5;
+
+// Step 1: Identify VPN-authenticated source IPs
+let VpnSources =
+    CommonSecurityLog
+    | where TimeGenerated >= ago(lookback)
+    | where Activity has_any (
+        "event:vpn success", "event:vpn", "event:sdwan",
+        "vpn", "ssl-vpn", "ipsec", "anyconnect",
+        "globalprotect", "pulse", "ike", "tunnel"
+      )
+    | where isnotempty(SourceIP)
+    | summarize VpnUsers = make_set(SourceUserName, 10) by SourceIP;
+
+// Step 2: Find internal scanning activity from those VPN sources
+CommonSecurityLog
+| where TimeGenerated >= ago(lookback)
+| where isnotempty(SourceIP) and isnotempty(DestinationIP)
+| join kind=innerunique (VpnSources) on SourceIP
+| where ipv4_is_private(DestinationIP)                  // Internal targets only
+| summarize
+    DestIPCount   = dcount(DestinationIP),
+    DestPortCount = dcount(DestinationPort),
+    VpnUsers      = any(VpnUsers)
+    by SourceIP, TimeGenerated = bin(TimeGenerated, scanWindow)
+| where DestIPCount > minHosts or DestPortCount > minPorts
+| project
+    TimeGenerated,
+    SourceIP,
+    VpnUsers,
+    DestIPCount,
+    DestPortCount
+| order by TimeGenerated desc
