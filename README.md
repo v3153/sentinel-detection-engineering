@@ -4,7 +4,7 @@
 
 [![Sentinel](https://img.shields.io/badge/Microsoft%20Sentinel-Compatible-0078D4?logo=microsoft-azure)](https://azure.microsoft.com/en-us/products/microsoft-sentinel)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Detections](https://img.shields.io/badge/Detection%20Rules-7-blue)](detections/)
+[![Detections](https://img.shields.io/badge/Detection%20Rules-8-blue)](detections/)
 [![Hunting](https://img.shields.io/badge/Hunting%20Queries-5-brightgreen)](hunting-queries/)
 
 ---
@@ -29,15 +29,15 @@ This repo contains **production KQL detection rules and threat hunting queries**
 ```
 sentinel-detection-engineering/
 ├── detections/                        # Scheduled analytics rules (KQL)
-│   ├── identity/                      # Account compromise, auth anomalies
-│   ├── endpoint/                      # Process, script, and file activity
-│   ├── network/                       # DNS, firewall, VPN, proxy anomalies
-│   ├── cloud/                         # Azure AD, M365, resource abuse
-│   └── lateral-movement/              # Internal spread techniques
+│   ├── identity/                      # Account compromise, auth anomalies (2 rules)
+│   ├── endpoint/                      # Process, script, and file activity (1 rule)
+│   ├── network/                       # DNS, firewall, VPN, proxy anomalies (3 rules)
+│   ├── cloud/                         # Azure AD, M365, resource abuse (1 rule)
+│   └── lateral-movement/              # Internal spread techniques (1 rule)
 ├── hunting-queries/                   # Proactive threat hunting KQL
-│   ├── identity/                      # Account-based hunting
-│   ├── endpoint/                      # Host and process-based hunting
-│   └── network/                       # Network traffic hunting
+│   ├── identity/                      # Account-based hunting (0 rules)
+│   ├── endpoint/                      # Host and process-based hunting (2 rules)
+│   └── network/                       # Network traffic hunting (3 rules)
 └── docs/                              # Detection methodology & notes
 ```
 
@@ -97,10 +97,10 @@ sentinel-detection-engineering/
 
 | Tactic | Techniques |
 |--------|-----------|
-| Reconnaissance | TA0043, T1595 |
+| Reconnaissance | TA0043 |
 | Initial Access | T1078, T1078.004 |
 | Execution | T1059.001 |
-| Discovery | T1046, T1082, T1482, T1069.002, T1087.002 |
+| Discovery | T1046 |
 | Lateral Movement | T1021.002, T1569.002 |
 | Credential Access | T1110.003 |
 | Command and Control | T1071, T1090.003 |
