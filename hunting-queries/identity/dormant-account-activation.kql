@@ -1,0 +1,44 @@
+// ============================================================
+// Hunting Query : Dormant Account Activation
+// Author        : v3153
+// MITRE ATT&CK  : T1078 - Valid Accounts
+// Hunt Type     : Retrospective
+//
+// Description :
+//   Identifies user accounts that have been inactive for 30+ days
+//   and have recently become active again. Dormant account reactivation
+//   can indicate account takeover, credential stuffing, or insider threat.
+//
+// How to Use:
+//   Run across 90-day window. Review reactivated accounts against
+//   HR offboarding records and access reviews.
+// ============================================================
+
+let InactiveDays  = 30;
+let LookbackDays  = 90;
+
+let RecentActivity =
+    SigninLogs
+    | where TimeGenerated > ago(7d)
+    | where ResultType == "0"
+    | summarize LastSeenRecent = max(TimeGenerated)
+        by UserPrincipalName;
+
+let HistoricActivity =
+    SigninLogs
+    | where TimeGenerated between (ago(todatetime(LookbackDays)) .. ago(7d))
+    | where ResultType == "0"
+    | summarize LastSeenHistoric = max(TimeGenerated), TotalHistoricSignins = count()
+        by UserPrincipalName;
+
+RecentActivity
+| join kind=inner HistoricActivity on UserPrincipalName
+| extend DaysDormant = datetime_diff('day', LastSeenRecent, LastSeenHistoric)
+| where DaysDormant >= InactiveDays
+| project
+    UserPrincipalName,
+    LastSeenHistoric,
+    LastSeenRecent,
+    DaysDormant,
+    TotalHistoricSignins
+| sort by DaysDormant desc

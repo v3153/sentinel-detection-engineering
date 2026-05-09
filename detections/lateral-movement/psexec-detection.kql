@@ -1,0 +1,45 @@
+// ============================================================
+// Rule Name   : PsExec Lateral Movement Detection
+// Author      : v3153
+// MITRE ATT&CK: T1569.002 - System Services: Service Execution | Lateral Movement
+// Severity    : High
+// Data Source : DeviceProcessEvents, DeviceNetworkEvents (MDE)
+//
+// Description :
+//   Detects PsExec and PsExec-like remote execution by correlating
+//   PSEXESVC service creation with remote process execution patterns.
+//
+// False Positives:
+//   - Legitimate IT admin remote management
+//   - Authorized vulnerability scanners
+//
+// Tuning: Whitelist approved admin/jump servers in ExcludedHosts
+// ============================================================
+
+let ExcludedHosts = dynamic([]);
+
+let PSExecService =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(1d)
+    | where FileName =~ "PSEXESVC.exe"
+    | where DeviceName !in (ExcludedHosts)
+    | project TimeGenerated, TargetDevice = DeviceName, AccountName,
+              ServiceFile = FileName, ProcessCommandLine;
+
+let PSExecNetwork =
+    DeviceNetworkEvents
+    | where TimeGenerated > ago(1d)
+    | where InitiatingProcessFileName =~ "psexec.exe"
+    | project TimeGenerated, SourceDevice = DeviceName, AccountName,
+              RemoteIP, RemotePort, InitiatingProcessFileName;
+
+union PSExecService, PSExecNetwork
+| extend DetectionSource = iff(isnotempty(TargetDevice), "PSExecService", "PSExecNetwork")
+| project
+    TimeGenerated,
+    DetectionSource,
+    Device           = coalesce(TargetDevice, SourceDevice),
+    AccountName,
+    RemoteIP,
+    ProcessCommandLine
+| sort by TimeGenerated desc

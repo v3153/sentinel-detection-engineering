@@ -1,0 +1,61 @@
+// ============================================================
+// Rule Name   : Anomalous Azure Sign-in Patterns
+// Author      : v3153
+// MITRE ATT&CK: T1078.004 - Valid Accounts: Cloud Accounts | Initial Access
+// Severity    : High
+// Data Source : SigninLogs (Azure AD / Entra ID)
+//
+// Description :
+//   Detects unusual Azure AD auth patterns: sign-ins from new countries
+//   and legacy auth protocols that bypass MFA and Conditional Access.
+//
+// False Positives:
+//   - Legitimate travel
+//   - Legacy apps not yet migrated to modern auth
+//
+// Tuning: Build known-good country baseline, whitelist legacy apps
+// ============================================================
+
+let LookbackDays  = 1d;
+let BaselineDays  = 30d;
+
+let UserCountryBaseline =
+    SigninLogs
+    | where TimeGenerated between (ago(BaselineDays) .. ago(LookbackDays))
+    | where ResultType == "0"
+    | summarize KnownCountries = make_set(tostring(LocationDetails.countryOrRegion))
+        by UserPrincipalName;
+
+let LegacyAuthProtocols = dynamic([
+    "Exchange ActiveSync", "IMAP", "POP3", "SMTP Auth",
+    "Exchange Online PowerShell", "Exchange Web Services",
+    "Autodiscover", "Other clients"
+]);
+
+SigninLogs
+| where TimeGenerated > ago(LookbackDays)
+| where ResultType == "0"
+| extend
+    Country      = tostring(LocationDetails.countryOrRegion),
+    IsLegacyAuth = ClientAppUsed in (LegacyAuthProtocols)
+| join kind=leftouter UserCountryBaseline on UserPrincipalName
+| extend IsNewCountry = not(set_has_element(KnownCountries, Country))
+| where IsNewCountry or IsLegacyAuth
+| extend RiskReason = case(
+    IsLegacyAuth and IsNewCountry, "Legacy auth from new country",
+    IsLegacyAuth,                  "Legacy auth protocol (MFA bypass risk)",
+    IsNewCountry,                  "Sign-in from new/unseen country",
+    "Unknown"
+  )
+| project
+    TimeGenerated,
+    UserPrincipalName,
+    IPAddress,
+    Country,
+    ClientApp        = ClientAppUsed,
+    IsLegacyAuth,
+    IsNewCountry,
+    RiskReason,
+    AppDisplayName,
+    ConditionalAccessStatus
+| sort by TimeGenerated desc

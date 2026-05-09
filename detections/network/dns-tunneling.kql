@@ -1,0 +1,64 @@
+// ============================================================
+// Rule Name   : DNS Tunneling / Exfiltration Detection
+// Author      : v3153
+// MITRE ATT&CK: T1048.003 - Exfiltration Over Alternative Protocol: DNS | Exfiltration
+// Severity    : Medium
+// Data Source : DnsEvents
+//
+// Description :
+//   Detects DNS-based data exfiltration by identifying high-entropy
+//   subdomain queries, unusually long DNS names, and high query
+//   volume to a single domain — indicators of DNS tunneling tools
+//   like Iodine, DNScat2, and custom C2 channels.
+//
+// False Positives:
+//   - CDN providers with hashed subdomains (Akamai, Fastly)
+//   - Security tooling telemetry domains
+//
+// Tuning: Whitelist known CDN/telemetry domains in TrustedDomains
+// ============================================================
+
+let LookbackPeriod  = 1d;
+let HighQueryThresh = 200;
+let LongNameThresh  = 50;
+let TrustedDomains  = dynamic(["akamai.net", "cloudfront.net", "fastly.net", "microsoft.com"]);
+
+DnsEvents
+| where TimeGenerated > ago(LookbackPeriod)
+| where isnotempty(Name)
+| extend
+    FQDN          = tolower(Name),
+    SubdomainPart = tostring(split(Name, ".", 0)[0])
+| where not(FQDN has_any (TrustedDomains))
+| extend IsLongSubdomain = strlen(SubdomainPart) > 30
+| summarize
+    TotalQueries   = count(),
+    UniqueFQDNs    = dcount(FQDN),
+    AvgQueryLength = avg(strlen(FQDN)),
+    MaxQueryLength = max(strlen(FQDN)),
+    LongSubQueries = countif(IsLongSubdomain),
+    SampleQueries  = make_set(FQDN, 5),
+    QueryingHosts  = make_set(Computer, 10)
+    by BaseDomain = strcat(tostring(split(Name, ".")[-2]), ".", tostring(split(Name, ".")[-1])),
+       bin(TimeGenerated, 1h)
+| where TotalQueries > HighQueryThresh
+    or LongSubQueries > 10
+    or AvgQueryLength > LongNameThresh
+| extend RiskReason = case(
+    TotalQueries > HighQueryThresh and LongSubQueries > 10, "High volume + encoded subdomains",
+    LongSubQueries > 10,                                    "Long/encoded subdomains",
+    TotalQueries > HighQueryThresh,                         "Abnormally high query volume",
+    "Long average DNS query length"
+  )
+| project
+    TimeGenerated,
+    BaseDomain,
+    TotalQueries,
+    UniqueFQDNs,
+    AvgQueryLength = round(AvgQueryLength, 1),
+    MaxQueryLength,
+    LongSubQueries,
+    RiskReason,
+    SampleQueries,
+    QueryingHosts
+| sort by TotalQueries desc

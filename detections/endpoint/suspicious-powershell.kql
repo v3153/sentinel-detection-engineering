@@ -1,0 +1,50 @@
+// ============================================================
+// Rule Name   : Suspicious PowerShell Execution
+// Author      : v3153
+// MITRE ATT&CK: T1059.001 - PowerShell | Execution
+// Severity    : Medium
+// Data Source : DeviceProcessEvents (Microsoft Defender for Endpoint)
+//
+// Description :
+//   Detects PowerShell invocations using offensive patterns:
+//   encoded commands, download cradles, AMSI bypass, reflective loading.
+//
+// False Positives:
+//   - Legitimate admin scripts with -EncodedCommand
+//   - SCCM/Intune deployment scripts
+//
+// Tuning: Allowlist known admin hosts in ExcludedHosts
+// ============================================================
+
+let ExcludedHosts   = dynamic([]);
+let ExcludedParents = dynamic(["MsMpEng.exe", "SenseIR.exe"]);
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName in~ ("powershell.exe", "pwsh.exe")
+| where DeviceName !in (ExcludedHosts)
+| where InitiatingProcessFileName !in~ (ExcludedParents)
+| extend CmdLower = tolower(ProcessCommandLine)
+| extend
+    IsEncoded        = CmdLower contains "encodedcommand" or CmdLower contains "frombase64string",
+    IsDownloadCradle = CmdLower contains "downloadstring" or CmdLower contains "net.webclient" or CmdLower contains "downloadfile",
+    IsAMSIBypass     = CmdLower contains "amsi",
+    IsHidden         = CmdLower contains "hidden" or CmdLower contains "-nop",
+    IsIEX            = CmdLower contains "iex(" or CmdLower contains "invoke-expression"
+| extend RiskScore = toint(IsEncoded) * 3 + toint(IsDownloadCradle) * 3
+                   + toint(IsAMSIBypass) * 4 + toint(IsHidden) * 2
+                   + toint(IsIEX) * 2
+| where RiskScore >= 3
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    ProcessCommandLine,
+    RiskScore,
+    ParentProcess    = InitiatingProcessFileName,
+    IsEncoded,
+    IsDownloadCradle,
+    IsAMSIBypass,
+    IsHidden,
+    IsIEX
+| sort by RiskScore desc

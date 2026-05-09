@@ -1,0 +1,61 @@
+// ============================================================
+// Rule Name   : Impossible Travel Detection
+// Author      : v3153
+// MITRE ATT&CK: T1078 - Valid Accounts | Initial Access
+// Severity    : High
+// Data Source : SigninLogs (Azure AD / Entra ID)
+//
+// Description :
+//   Detects when the same user authenticates from two locations
+//   within a timeframe that makes physical travel impossible
+//   (implied speed > 900 km/hr).
+//
+// False Positives:
+//   - VPN / proxy usage
+//   - Shared or service accounts
+//   - Cloud proxy services (Zscaler, Cloudflare Gateway)
+//
+// Tuning: Add known VPN CIDRs to ExcludedIPs, raise MinDistanceKm if noisy
+// ============================================================
+
+let MinDistanceKm    = 500;
+let MaxTimeDeltaHours = 2;
+let ExcludedIPs      = dynamic([]);
+
+let Signins =
+    SigninLogs
+    | where TimeGenerated > ago(1d)
+    | where ResultType == "0"
+    | where IPAddress !in (ExcludedIPs)
+    | where isnotempty(LocationDetails)
+    | extend
+        Latitude  = toreal(LocationDetails.geoCoordinates.latitude),
+        Longitude = toreal(LocationDetails.geoCoordinates.longitude),
+        City      = tostring(LocationDetails.city),
+        Country   = tostring(LocationDetails.countryOrRegion)
+    | where isnotempty(Latitude) and isnotempty(Longitude)
+    | project TimeGenerated, UserPrincipalName, IPAddress,
+              Latitude, Longitude, City, Country, AppDisplayName;
+
+Signins
+| join kind=inner (Signins) on UserPrincipalName
+| where TimeGenerated1 > TimeGenerated
+| where datetime_diff('hour', TimeGenerated1, TimeGenerated) <= MaxTimeDeltaHours
+| extend DistanceKm = geo_distance_2points(Longitude, Latitude, Longitude1, Latitude1) / 1000
+| where DistanceKm >= MinDistanceKm
+| extend
+    TimeDeltaMinutes = datetime_diff('minute', TimeGenerated1, TimeGenerated),
+    ImpliedSpeedKmH  = DistanceKm / (datetime_diff('minute', TimeGenerated1, TimeGenerated) / 60.0)
+| where ImpliedSpeedKmH > 900
+| project
+    FirstSignIn      = TimeGenerated,
+    SecondSignIn     = TimeGenerated1,
+    UserPrincipalName,
+    FirstIP          = IPAddress,
+    SecondIP         = IPAddress1,
+    FirstLocation    = strcat(City, ", ", Country),
+    SecondLocation   = strcat(City1, ", ", Country1),
+    DistanceKm       = round(DistanceKm, 0),
+    ImpliedSpeedKmH  = round(ImpliedSpeedKmH, 0),
+    TimeDeltaMinutes
+| sort by ImpliedSpeedKmH desc
