@@ -26,11 +26,9 @@ let detectWindow      = 1d;
 let minBaselineDest   = 10;
 let maxHits           = 10;
 let excludeCommonPorts = dynamic(["80","443","53","123","25","110","995","143","993","22","21","445","139"]);
-
 let trainStart  = ago(trainDays);
 let detectStart = ago(detectWindow);
 let detectEnd   = now();
-
 let base = materialize(
     CommonSecurityLog
     | where TimeGenerated between (trainStart .. detectEnd)
@@ -43,7 +41,6 @@ let base = materialize(
     | where DstPortStr !in (excludeCommonPorts)
     | project TimeGenerated, SourceIP, DestinationIP, DstPortStr, DeviceVendor, DeviceProduct
 );
-
 let train_by_src =
     base
     | where TimeGenerated between (trainStart .. detectStart)
@@ -54,7 +51,6 @@ let detect_by_src =
     base
     | where TimeGenerated between (detectStart .. detectEnd)
     | summarize DetectSet = make_set(DestinationIP, 100000) by SourceIP;
-
 train_by_src
 | join kind=inner detect_by_src on SourceIP
 | extend
